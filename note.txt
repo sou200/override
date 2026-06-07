@@ -21,3 +21,11 @@ simple reverese chall -> level07:GbcPDRgsFK77LNnnuh7QyFYA2942Gp8yKj9KrWD8
 
 level07:
 integer buffer overflow to bypass wil, write the shellcode as integer outside the main stack -> level08:7WJ6jFBzrcjEYXudxnM3kdW7n3qyxR6tk2xGrkSC
+
+level08:
+symlink attack -> level09:fjAwpJNs2vvkFLRebEvAQ2hFZ4uQBWfHRsP62d8S
+
+level09:
+override the strncpy lenght buffer -> end:j4AunAPDXaJxxWjYEUxpanmvSgRDV3tpA5BEaBuE
+
+

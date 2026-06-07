@@ -1,0 +1,53 @@
+# Level00 Walkthrough
+
+## Initial Analysis
+
+After connecting to the target machine, I located the `level00` x86 ELF binary and executed it.
+
+The program immediately prompted for a password:
+
+```bash
+$ ./level00
+Enter Password:
+```
+
+## Reverse Engineering
+
+To understand how the password was validated, I decompiled the binary and inspected the relevant code:
+
+```c
+__isoc99_scanf("%d", &v1);
+
+if (v1 != 5276)
+{
+    puts("\nInvalid Password!");
+    return 1;
+}
+```
+
+The program reads an integer from user input and compares it against the hardcoded value `5276`. If the value does not match, execution terminates with the message "Invalid Password!".
+
+## Exploitation
+
+Since the password is hardcoded in the binary, no further exploitation is required. I simply entered the expected value:
+
+```bash
+$ ./level00
+Enter Password: 5276
+```
+
+The check succeeded and the program spawned a shell.
+
+## Retrieving the Flag
+
+With shell access obtained, I read the password for the next level:
+
+```bash
+cat /home/users/level01/.pass
+```
+
+This revealed the credentials required to access Level01.
+
+## Conclusion
+
+The challenge demonstrates a basic reverse-engineering task where the password validation logic is exposed directly within the binary. By decompiling the executable and identifying the hardcoded comparison value (`5276`), it was possible to bypass the authentication mechanism and gain shell access.
