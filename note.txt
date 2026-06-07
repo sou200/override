@@ -1,0 +1,20 @@
+leve00:
+just use gdb to get the pass -> level01:uSq2ehEGT6c9S24zbshexZQBXUGrncxn5sD5QfGL
+
+level01:
+this a ret2libc vuln in password -> level02:PwBLgNa8p8MTKW57S7zxVAQCxnCpV8JqTTs9XEBv
+
+level02:
+format string in username and get the pass from the stack and swap the endian -> level03:Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5M9KfPg3H
+
+level03:
+the key is 18 -> 322424827 xored with some string to give you "Congratulations!" -> level04:kgv3tkEb9h2mLkRsPkXRfc2mHbjMxQzvb2FrgKkf
+
+level04:
+use crafted shellcode to read the file -> level05:3v8QLcN5SAhPaZZfEasfmXdwyR59ktDEMAwHF3aN
+
+level05:
+override the got and get shell -> level06:h4GtNnaMs2kZFN92ymTr2DcJHAzMfzLW25Ep59mq
+
+level06:
+simple reverese chall -> level07:GbcPDRgsFK77LNnnuh7QyFYA2942Gp8yKj9KrWD8
