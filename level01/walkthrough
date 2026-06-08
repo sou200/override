@@ -1,0 +1,87 @@
+# Level01 Walkthrough
+
+## Initial Enumeration
+
+After connecting to the Level01 machine via SSH, I identified an x86 ELF binary as the primary target for analysis.
+
+Running the binary presented an administrative login prompt. The program first requested a username and, if the username was accepted, prompted for a password.
+
+```text
+********* ADMIN LOGIN PROMPT *********
+Enter Username:
+```
+
+## Static Analysis
+
+To understand the authentication logic, I decompiled the binary and reviewed the relevant functions.
+
+During analysis, I discovered that the username validation routine compared the supplied username against a hard-coded string:
+
+```text
+dat_wil
+```
+
+Further inspection revealed that the password verification logic did not meaningfully affect the authentication outcome. As a result, the username check became the primary gatekeeper within the application's login flow.
+
+## Vulnerability Discovery
+
+While reviewing the password handling code, I noticed an unsafe call to `fgets()`:
+
+```c
+char s[64];
+_BOOL4 v5;
+
+memset(s, 0, sizeof(s));
+v5 = 0;
+
+puts("********* ADMIN LOGIN PROMPT *********");
+printf("Enter Username: ");
+fgets(a_user_name, 256, stdin);
+
+v5 = verify_user_name();
+
+if (v5)
+{
+    puts("nope, incorrect username...\n");
+}
+else
+{
+    puts("Enter Password: ");
+    fgets(s, 100, stdin);
+    v5 = verify_user_pass(s);
+    puts("nope, incorrect password...\n");
+}
+```
+
+The buffer `s` is only 64 bytes long, yet `fgets()` is instructed to read up to 100 bytes. This mismatch creates a classic stack-based buffer overflow condition, allowing data beyond the buffer boundary to overwrite adjacent stack variables and control data.
+
+## Impact Assessment
+
+Because user-controlled input can exceed the allocated buffer size, an attacker may be able to corrupt the stack and alter the program's execution flow.
+
+Additional investigation of the binary's memory protections and runtime behavior confirmed that the overflow was potentially exploitable under the challenge environment.
+
+## Exploitation Overview
+
+After determining the offset required to reach saved control data on the stack, I crafted a proof-of-concept payload that demonstrated control over program execution.
+
+The exploit development process involved:
+
+1. Supplying the valid username (`dat_wil`).
+2. Sending an oversized password input.
+3. Overwriting stack control data through the vulnerable buffer.
+4. Redirecting execution flow to attacker-controlled data.
+
+This confirmed that the vulnerability could be leveraged to execute arbitrary code within the context of the vulnerable process.
+
+## Conclusion
+
+This challenge demonstrates several common reverse-engineering and binary-exploitation concepts:
+
+* Identifying authentication logic through decompilation.
+* Discovering hard-coded credentials.
+* Recognizing unsafe buffer handling.
+* Analyzing stack memory layouts.
+* Demonstrating control-flow hijacking through a stack-based buffer overflow.
+
+The root cause of the vulnerability is the use of `fgets()` with a size argument larger than the destination buffer, allowing user input to overwrite memory beyond the bounds of the allocated stack buffer.
