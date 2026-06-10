@@ -1,0 +1,234 @@
+# Level03 Walkthrough
+
+## Initial Enumeration
+
+After connecting to the machine via SSH as `level03`, I listed the files in the home directory and found a 32-bit ELF binary with the SUID bit set.
+
+```bash
+$ ls -la
+-rwsr-s---+ 1 level04 users 7677 Sep 10  2016 level03
+```
+
+Running `file` confirms that the binary is an x86 executable:
+
+```bash
+$ file level03
+level03: setuid ELF 32-bit LSB executable ...
+```
+
+Executing the program displays a simple password prompt:
+
+```text
+***********************************
+*               level03          **
+***********************************
+Password:
+```
+
+Any random password results in:
+
+```text
+Invalid Password
+```
+
+Since the binary is SUID, a successful exploit should allow execution with the privileges of `flag03`.
+
+---
+
+## Static Analysis
+
+I loaded the binary into a decompiler and focused on the `main()` function:
+
+```c
+int main(void)
+{
+    int password;
+
+    srand(time(NULL));
+
+    puts("***********************************");
+    puts("*\t\tlevel03\t\t**");
+    puts("***********************************");
+
+    printf("Password:");
+    scanf("%d", &password);
+
+    test(password, 322424845);
+
+    return 0;
+}
+```
+
+The user input is passed to `test()` together with the constant value `322424845`.
+
+---
+
+## Understanding `test()`
+
+The function computes the difference between the constant and the supplied password:
+
+```c
+int diff = target - password;
+```
+
+It then uses a switch statement:
+
+```c
+switch (diff)
+{
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+    case 9:
+    case 16:
+    case 17:
+    case 18:
+    case 19:
+    case 20:
+    case 21:
+        decrypt(diff);
+        break;
+
+    default:
+        decrypt(rand());
+        break;
+}
+```
+
+This means only the following values are accepted:
+
+```text
+1-9, 16-21
+```
+
+For these values, `decrypt(diff)` is called. Otherwise, a random value is used.
+
+---
+
+## Analyzing `decrypt()`
+
+The interesting part of `decrypt()` is:
+
+```c
+char encrypted[] = "Q}|u`sfg~sf{}|a3";
+
+for (int i = 0; i < strlen(encrypted); i++)
+    encrypted[i] ^= key;
+```
+
+After XORing each byte with the provided key, the program checks:
+
+```c
+if (!strcmp(encrypted, "Congratulations!"))
+    system("/bin/sh");
+```
+
+Therefore, we need to find the XOR key that transforms:
+
+```text
+Q}|u`sfg~sf{}|a3
+```
+
+into:
+
+```text
+Congratulations!
+```
+
+Taking the first character:
+
+```text
+'Q' ^ 'C' = 0x12
+```
+
+which is decimal:
+
+```text
+18
+```
+
+Verifying additional characters gives the same result:
+
+```text
+'}' ^ 'o' = 18
+'|' ^ 'n' = 18
+```
+
+Therefore the correct XOR key is:
+
+```text
+18
+```
+
+---
+
+## Calculating the Password
+
+The program calls:
+
+```c
+decrypt(target - password);
+```
+
+and we know the required key is:
+
+```text
+18
+```
+
+So:
+
+```text
+322424845 - password = 18
+```
+
+Solving for the password:
+
+```text
+password = 322424845 - 18
+password = 322424827
+```
+
+---
+
+## Getting a Shell
+
+Entering the calculated password:
+
+```text
+Password: 322424827
+```
+
+causes:
+
+```c
+decrypt(18);
+```
+
+which transforms the encrypted string into:
+
+```text
+Congratulations!
+```
+
+The condition succeeds and the program executes:
+
+```c
+system("/bin/sh");
+```
+
+Since the binary is SUID, the spawned shell runs with the privileges of `flag03`.
+
+```bash
+$ ./level03
+Password: 322424827
+$ whoami
+flag03
+```
+
+The flag can then be read from the target user's account.
