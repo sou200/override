@@ -1,0 +1,87 @@
+# Level04 Walkthrough
+
+## Initial Enumeration
+
+After connecting to the machine, I inspected the target binary:
+
+```bash
+ls -l level04
+```
+
+Output:
+
+```text
+-rwsr-s---+ 1 level05 users 7797 Sep 10 2016 level04
+```
+
+The binary is SUID and executes with the privileges of `level05`, making it an attractive target for privilege escalation.
+
+## Behavioral Analysis
+
+Running the program produced a prompt asking for shellcode. After reversing the binary, I observed that it forks into two processes:
+
+* The child reads user-controlled input into a stack buffer using `gets()`.
+* The parent monitors the child using `ptrace()`.
+
+The vulnerable code in the child is:
+
+```c
+char s[128];
+gets(s);
+```
+
+Since `gets()` performs no bounds checking, the child process is vulnerable to a classic stack-based buffer overflow.
+
+## Anti-Execve Protection
+
+My first attempt was to use traditional `/bin/sh` shellcode based on the `execve` syscall. However, the exploit consistently failed.
+
+Further analysis of the parent process revealed the reason. The parent repeatedly inspects the child's registers using:
+
+```c
+ptrace(PTRACE_PEEKUSER, child_pid, 44, 0);
+```
+
+On 32-bit Linux, offset `44` corresponds to `ORIG_EAX`, which contains the current syscall number.
+
+The parent kills the child whenever:
+
+```c
+ORIG_EAX == 11
+```
+
+Since syscall `11` is `execve`, any standard shell-spawning shellcode is immediately detected and terminated.
+
+## Alternative Approach
+
+Because only `execve` is blocked, spawning a shell is unnecessary. The SUID binary already runs with elevated privileges, so the objective becomes reading the protected password file directly.
+
+Instead of executing a shell, I wrote shellcode that:
+
+1. Opens the target password file.
+2. Obtains a file descriptor.
+3. Copies the file contents to standard output.
+4. Exits cleanly.
+
+This approach avoids syscall 11 entirely, so the ptrace-based filter never triggers.
+
+Conceptually, the shellcode performs:
+
+```c
+fd = open("/home/users/level05/.pass", O_RDONLY);
+sendfile(STDOUT_FILENO, fd, NULL, size);
+```
+
+or equivalently:
+
+```c
+fd = open(...);
+read(fd, buf, size);
+write(1, buf, size);
+```
+
+## Result
+
+The shellcode successfully executed within the child process, bypassed the parent's `execve` detection logic, and printed the contents of the protected password file to standard output.
+
+The key lesson from this challenge is that blocking a single syscall is not sufficient protection. Even when shell execution is prevented, an attacker may still achieve the objective by directly interacting with files through other syscalls.
