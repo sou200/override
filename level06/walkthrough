@@ -1,0 +1,107 @@
+# Level06 Walkthrough
+
+## Enumeration
+
+After connecting to the machine as `level06`, I started by listing the files in the home directory:
+
+```bash
+level06@SnowCrash:~$ ls -la
+-rwsr-s---+ 1 level07 users 7907 Sep 10  2016 level06
+```
+
+The interesting file is the `level06` binary. It is a 32-bit ELF executable with the SUID bit set, meaning it executes with the privileges of its owner (`level07`).
+
+## Initial Analysis
+
+Running the binary reveals that it expects a login and a serial number:
+
+```bash
+level06@SnowCrash:~$ ./level06
+***********************************
+*               level06           *
+***********************************
+-> Enter Login: test
+***********************************
+***** NEW ACCOUNT DETECTED ********
+***********************************
+-> Enter Serial: 1234
+```
+
+Without the correct serial number, authentication fails.
+
+Since the binary is relatively small, I copied it locally and loaded it into a decompiler to understand how the authentication works.
+
+## Reversing the Authentication
+
+The interesting logic is located in the `auth()` function.
+
+After removing the anti-debugging code and simplifying the decompiled output, the authentication algorithm can be represented as:
+
+```c
+hash = (login[3] ^ 0x1337) + 6221293;
+
+for (i = 0; i < len(login); i++)
+{
+    hash += (hash ^ login[i]) % 1337;
+}
+
+return serial == hash;
+```
+
+The function computes a hash from the supplied username and compares the result with the provided serial number.
+
+A few observations:
+
+* The login must contain more than 5 characters.
+* All characters must be printable.
+* The serial number is entirely derived from the login.
+* If we can reproduce the algorithm, we can generate a valid serial for any username.
+
+## Generating a Valid Serial
+
+I chose the username:
+
+```text
+AAAAAA
+```
+
+Applying the hashing algorithm to this username produces the serial:
+
+```text
+6229050
+```
+
+## Exploitation
+
+Using the generated serial:
+
+```bash
+level06@SnowCrash:~$ ./level06
+***********************************
+*               level06           *
+***********************************
+-> Enter Login: AAAAAA
+***********************************
+***** NEW ACCOUNT DETECTED ********
+***********************************
+-> Enter Serial: 6229050
+Authenticated!
+$
+```
+
+The program spawns a shell running with the privileges of `level07`.
+
+## Retrieving the Flag
+
+Once the shell is obtained, read the password for the next level:
+
+```bash
+$ cat /home/users/level07/.pass
+<password>
+```
+
+Use the recovered password to connect as `level07`.
+
+## Conclusion
+
+This challenge is a straightforward reverse-engineering task. The binary does not contain a memory corruption vulnerability; instead, the authentication mechanism relies on a deterministic hash computed from the username. By reversing the `auth()` function and reproducing the hash calculation, it is possible to generate a valid serial number and obtain a shell with the privileges of the next level.

