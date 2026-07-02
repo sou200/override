@@ -40,7 +40,7 @@ void set_msg(char *data)
     printf(">>: ");
 
     fgets(message, sizeof(message), stdin);
-
+    printf("%d\n", *(int *)(data + 180));
     strncpy(data, message, *(int *)(data + 180));
 }
 

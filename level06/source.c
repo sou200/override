@@ -28,16 +28,13 @@ int authenticate(char *login, int serial)
     int hash;
     int i;
 
-    // Remove trailing newline from fgets()
     login[strcspn(login, "\n")] = '\0';
 
     len = strnlen(login, 32);
 
-    // Username must be longer than 5 chars
     if (len <= 5)
         return 0;
 
-    // Anti-debugging check
     if (ptrace(PTRACE_TRACEME, 0, 1, 0) == -1)
     {
         puts("\x1B[32m.---------------------------.");
@@ -50,14 +47,11 @@ int authenticate(char *login, int serial)
 
     for (i = 0; i < len; i++)
     {
-        // Reject non-printable characters
         if (login[i] <= 31)
             return 0;
 
         hash += (hash ^ login[i]) % 0x539;
     }
-
-    printf("%d", hash); ////////////
 
     return serial == hash;
 }

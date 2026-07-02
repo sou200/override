@@ -5,7 +5,7 @@
 After connecting to the machine as `level06`, I started by listing the files in the home directory:
 
 ```bash
-level06@SnowCrash:~$ ls -la
+level06@OverRide:~$ ls -la
 -rwsr-s---+ 1 level07 users 7907 Sep 10  2016 level06
 ```
 
@@ -16,7 +16,7 @@ The interesting file is the `level06` binary. It is a 32-bit ELF executable with
 Running the binary reveals that it expects a login and a serial number:
 
 ```bash
-level06@SnowCrash:~$ ./level06
+level06@OverRide:~$ ./level06
 ***********************************
 *               level06           *
 ***********************************
@@ -76,7 +76,7 @@ Applying the hashing algorithm to this username produces the serial:
 Using the generated serial:
 
 ```bash
-level06@SnowCrash:~$ ./level06
+level06@OverRide:~$ ./level06
 ***********************************
 *               level06           *
 ***********************************

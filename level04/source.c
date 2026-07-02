@@ -36,7 +36,6 @@ int main(void)
     pid_t child;
     int status;
     long syscall;
-
     char shellcode[128] = {0};
 
     child = fork();
@@ -46,10 +45,6 @@ int main(void)
         while (1)
         {
             wait(&status);
-
-            /*
-             * Child exited normally or died from a signal.
-             */
             if (WIFEXITED(status) || WIFSIGNALED(status))
             {
                 puts("child is exiting...");
@@ -67,14 +62,8 @@ int main(void)
         puts("no exec() for you");
         kill(child, SIGKILL);
     } else {
-        /*
-         * Die if parent dies.
-         */
         prctl(PR_SET_PDEATHSIG, 1);
 
-        /*
-         * Allow parent to trace us.
-         */
         ptrace(PTRACE_TRACEME, 0, 0, 0);
 
         puts("Give me some shellcode, k");

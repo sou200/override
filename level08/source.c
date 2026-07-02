@@ -8,13 +8,10 @@ void log_wrapper(FILE *logfile, const char *message, const char *user_input)
 {
     char buffer[264];
 
-    // Copy prefix message
     strcpy(buffer, message);
 
-    // Append user input (VULNERABLE)
     snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), user_input);
 
-    // Remove newline if present
     buffer[strcspn(buffer, "\n")] = '\0';
 
     fprintf(logfile, "LOG: %s\n", buffer);
@@ -35,8 +32,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* Open log */
-
     log_file = fopen("./backups/.log", "w");
 
     if (!log_file)
@@ -47,8 +42,6 @@ int main(int argc, char *argv[])
 
     log_wrapper(log_file, "Starting back up: ", argv[1]);
 
-    /* Open source file */
-
     source_file = fopen(argv[1], "r");
 
     if (!source_file)
@@ -57,13 +50,9 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    /* Build destination path */
-
     strcpy(backup_path, "./backups/");
 
     strncat(backup_path, argv[1], sizeof(backup_path) - strlen(backup_path) - 1);
-
-    /* Create backup file */
 
     backup_fd = open(backup_path, O_WRONLY | O_CREAT | O_APPEND, 0660);
 
@@ -74,8 +63,6 @@ int main(int argc, char *argv[])
 
         exit(1);
     }
-
-    /* Copy file contents */
 
     while ((c = fgetc(source_file)) != EOF)
     {

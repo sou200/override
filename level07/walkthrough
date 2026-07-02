@@ -80,7 +80,7 @@ There is **no bounds checking** on `index`.
 The program simply does:
 
 ```c
-data[index] = number;
+*(unsigned int*)(data + index * 4)
 ```
 
 This gives us an arbitrary stack write primitive.

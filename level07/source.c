@@ -31,11 +31,7 @@ static int store_number(unsigned int *data)
     printf(" Index: ");
     index = get_unum();
 
-    /*
-     * Some slots are reserved.
-     * Also reject numbers whose most significant byte is 0xB7.
-     */
-    if ((index % 3 == 0) || ((number >> 24) == 0xB7))
+    if ((index / 3)*3 == index || (number >> 24) == 0xB7)
     {
         puts(" *** ERROR! ***");
         puts("   This index is reserved for wil!");
@@ -43,8 +39,7 @@ static int store_number(unsigned int *data)
 
         return 1;
     }
-
-    data[index] = number;
+    *(unsigned int *)((char*)data + index * 4) = number;
     return 0;
 }
 
@@ -55,7 +50,7 @@ static int read_number(unsigned int *data)
     printf(" Index: ");
     index = get_unum();
 
-    printf(" Number at data[%u] is %u\n", index, data[index]);
+    printf(" Number at data[%u] is %u\n", index, *(unsigned int *)((char*)data + index * 4));
 
     return 0;
 }
@@ -68,11 +63,9 @@ int main(int argc, char **argv, char **envp)
 
     memset(data, 0, sizeof(data));
 
-    /* Wipe argv strings */
     for (char **p = argv; *p; p++)
         memset(*p, 0, strlen(*p));
 
-    /* Wipe environment strings */
     for (char **p = envp; *p; p++)
         memset(*p, 0, strlen(*p));
 
